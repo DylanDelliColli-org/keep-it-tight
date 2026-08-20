@@ -164,3 +164,132 @@ Why this is the dispute-proof minimum: any per-user-timezone scheme makes "the s
 5. **30 s budget assumes the warm local stack and no per-run `db reset`.** A cold `supabase start` or per-run reset blows the budget on its own; the seed/cleanup discipline (§5) is load-bearing, and only one local stack can hold ports 54321–54327 at a time on this machine.
 
 Sources (external facts verified 2026-08-20): https://supabase.com/pricing · https://supabase.com/docs/guides/auth/auth-smtp · https://developer.apple.com/forums/thread/743049 · https://shkspr.mobi/blog/2020/12/coping-with-heic-in-the-browser/ · https://github.com/orgs/supabase/discussions/14598 · https://dreamlit.ai/blog/how-to-send-emails-supabase
+
+## RESEARCH ADDENDUM — no-Supabase pivot
+
+At the RESEARCH gate (2026-08-20) the operator ruled: **contest does not
+use Supabase — it uses a free stack instead, as a one-off exception to
+the standing shared-instance rule.** Locked at the same gate: auth is
+three pre-provisioned email+password accounts with no signup flow; the
+group timezone is **America/Toronto**; the shared Supabase project is
+Pro (now moot for contest). Producer substitution for this addendum:
+orchestrator inline (marketplace/storage/auth skill discovery + web
+verification) instead of a second sherlock dispatch — recorded per the
+gate protocol.
+
+### Voided vs standing findings
+
+**Voided** (Supabase-specific): §1 shared-instance mechanics (PostgREST
+schema list, GRANTs, RLS house style, central migrations dir — the
+standing central-migrations rule is scoped to Supabase and does not
+apply here), §2 Supabase Storage posture, §3 Supabase Auth mechanics,
+§5's local Supabase stack seam, and every fingerprint referencing
+`~/dev-environment/supabase/migrations/`.
+
+**Standing**: §1 stack conventions (Next.js 16 App Router, React 19,
+Tailwind 4, vitest 4, shadcn, zod, `@/` alias, Vercel deploy — twine/qbrs
+evidence); §2 client-side compression + HEIC handling (storage-provider
+independent); §3's conclusion shape (pre-provisioned accounts, rare
+sign-in, membership is app-authority); §4 time/week contract in full;
+§5's harness discipline (two-config vitest, `fileParallelism: false`,
+seed/cleanup not resets, route-handlers-as-seam); the 30 s budget math.
+
+### Database: Neon Postgres (marketplace), free plan
+
+Per the vercel-storage skill's decision matrix (relational data → Neon).
+Free plan verified today: $0, 0.5 GB storage per project, 100 CU-hours
+compute/month, scale-to-zero, 5 GB transfer/month
+(https://neon.com/pricing, https://neon.com/faqs/free-plan-limits-and-quotas)
+— orders of magnitude above three users' row data. Provisioned via
+`vercel integration add neon` (auto env vars). Client: drizzle ORM over
+`@neondatabase/serverless`, lazy `getDb()` init (build-time safety),
+no `Proxy` wrappers, migrations in-repo via drizzle-kit (note:
+drizzle-kit does not auto-load `.env.local` — use dotenv-cli).
+Contest becomes fully self-contained: no cross-project migration dir,
+no schema-list foot-gun. Confidence: high.
+
+### Photos: Vercel Blob, Hobby allotment
+
+Hobby (free) includes 1 GB storage, 10 GB transfer/month, 10k simple +
+2k advanced ops (https://vercel.com/docs/vercel-blob/usage-and-pricing).
+Compressed-photo math from §2 stands: ~4.5 MB/week stored, years of
+headroom; exceeding a Hobby cap suspends Blob rather than billing.
+Server-side `put()` with `access: 'private'` (public beta) or
+unguessable public URLs — ARCHITECTURE call; compression stays
+client-side either way. Caveat: Blob free allotments are a **Hobby**
+(personal) feature; on a Pro team Blob is usage-billed from the first
+byte. Recommendation: deploy under the operator's personal Hobby scope,
+not the team org — ratify in ARCHITECTURE. Confidence: high on numbers,
+medium on private-access beta details.
+
+### Auth: two candidates, ARCHITECTURE decides
+
+- **Clerk** (auth skill's recommended provider; native marketplace,
+  `vercel integration add clerk`): free plan covers this scale; supports
+  invite-only/restricted sign-up with manual user creation
+  (https://clerk.com/docs/guides/secure/restricting-access — whether
+  restricted mode is free-plan needs one verification at lock time).
+  Cost: every integration test's auth path acquires a remote dependency
+  (Clerk's API), fighting the hermetic 30 s suite.
+- **Self-auth: Auth.js credentials provider or iron-session + bcrypt**
+  against a `members` table in Neon: zero external service, fully
+  hermetic integration tests, no signup surface to restrict — but
+  session/password handling is our code. At exactly three users with
+  membership already app-authoritative, the surface is small.
+Tension recorded honestly: the plugin's preferred-provider guidance
+favors the real integration (Clerk); the north star's rank-1
+integration-test value favors hermetic self-auth. Operator/ARCHITECTURE
+decides. Confidence: high on both options' shapes.
+
+### Integration-test seam, revised
+
+Dockerized **Postgres 17** container dedicated to contest (distinct
+port, e.g. 5433 — the Supabase local stack owns 54322), drizzle
+migrations applied once per session, qbrs-shape seed/cleanup per
+fixture, route handlers imported directly and invoked with real
+`Request` objects. Same budget math as §5: 30–60 tests fit the 30 s
+budget. Testing against Neon itself is disqualified for the suite
+(network latency, CU-hour burn) but fine for a one-time smoke of the
+provisioned instance. Confidence: high.
+
+### Fingerprints, revised (provisional)
+
+- `src/db/schema.ts` + `drizzle/` (in-repo migrations) — members,
+  schedule_days, workouts, meal_photos. Confidence: high.
+- `src/db/index.ts` — lazy `getDb()`. Confidence: high.
+- `src/lib/scoring.ts`, `src/lib/week.ts` — unchanged from §6.
+- `src/lib/auth/` or Clerk middleware — pending the auth decision.
+- `src/app/` routes + `src/app/api/` handlers — unchanged shape.
+- `tests/integration/**` + `vitest.integration.config.ts` +
+  `tests/integration/helpers/` + a compose/run script for the Postgres
+  container. Confidence: medium-high.
+- Post-wedge: `src/components/meal-upload.tsx` + Blob token route
+  (`src/app/api/upload/route.ts`). Confidence: medium.
+
+### Bundle groups: A–E stand with substitutions
+
+A (schema + scoring + week: now `src/db/*` + drizzle migrations instead
+of central SQL files), B (auth + membership: client trio replaced by
+db/auth wiring), C (schedule + check-off UI), D (leaderboard), E (photo
+pipeline: Vercel Blob instead of Supabase Storage). Wedge order
+A → B → C → D unchanged.
+
+### Risks, revised
+
+1. **Neon scale-to-zero cold starts** (~hundreds of ms after idle) hit
+   the first request of a session — acceptable for three users, worth
+   knowing before anyone calls it a bug. Confidence: medium-high.
+2. **Blob-on-team-plan billing**: deploying under the Pro team org
+   silently converts "free" into usage-billed Blob. The Hobby-scope
+   deploy recommendation exists to prevent this; needs ARCHITECTURE
+   ratification.
+3. **Clerk restricted-mode plan gating** unverified; if it turns out
+   paid-only, self-auth wins by default.
+4. Prior risks 4 (single group timezone — resolved: America/Toronto
+   locked) and 5 (budget discipline — carried over unchanged).
+
+Addendum sources (verified 2026-08-20): https://neon.com/pricing ·
+https://neon.com/faqs/free-plan-limits-and-quotas ·
+https://vercel.com/docs/vercel-blob/usage-and-pricing ·
+https://clerk.com/docs/guides/secure/restricting-access ·
+https://costbench.com/software/developer-tools/clerk/
