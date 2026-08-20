@@ -89,3 +89,31 @@ describe("isEditableScheduleDate", () => {
     expect(isEditableScheduleDate("2026-08-20", beforeMidnight)).toBe(true);
   });
 });
+
+describe("rejecting dates that are not canonical calendar dates", () => {
+  const atNoon = new Date("2026-08-20T12:00:00Z");
+
+  it("rejects an unpadded month rather than letting it pass the freeze gate", () => {
+    expect(() => isEditableScheduleDate("2026-8-21", atNoon)).toThrow(
+      RangeError,
+    );
+  });
+
+  it("rejects a date that is not a real calendar day", () => {
+    expect(() => weekStartMonday("2026-02-30")).toThrow(RangeError);
+    expect(() => isEditableScheduleDate("2026-02-30", atNoon)).toThrow(
+      RangeError,
+    );
+  });
+
+  it("rejects an unpadded month in the week helper", () => {
+    expect(() => weekStartMonday("2026-1-05")).toThrow(RangeError);
+  });
+
+  it("rejects strings that are not dates at all", () => {
+    expect(() => weekStartMonday("not-a-date")).toThrow(RangeError);
+    expect(() => isEditableScheduleDate("not-a-date", atNoon)).toThrow(
+      RangeError,
+    );
+  });
+});

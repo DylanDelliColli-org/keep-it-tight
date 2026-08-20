@@ -9,6 +9,8 @@
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
+    "test:integration": "bash scripts/test-db.sh && vitest run --config vitest.integration.config.ts",
+    "test:all": "npm run test && npm run test:integration",
     "db:generate": "dotenv -e .env.local -- drizzle-kit generate"
   },
   "dependencies": {

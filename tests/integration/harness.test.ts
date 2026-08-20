@@ -1,0 +1,98 @@
+import { sql } from "drizzle-orm";
+import { afterAll, describe, expect, it } from "vitest";
+
+import { members, scheduleDays, workouts } from "@/db/schema";
+import { getDb } from "@/db";
+
+import { closeTestPool, testDb } from "./helpers/db";
+import { seedMembers } from "./helpers/seed";
+
+afterAll(async () => {
+  await closeTestPool();
+});
+
+describe("migrations applied to the real database", () => {
+  it("creates exactly the three tables the schema contract names", async () => {
+    const result = await testDb.execute(
+      sql`select table_name from information_schema.tables where table_schema = 'public' and table_type = 'BASE TABLE' order by table_name`,
+    );
+    const tables = result.rows
+      .map((row) => String(row.table_name))
+      .filter((name) => name !== "__drizzle_migrations");
+
+    expect(tables).toEqual(["members", "schedule_days", "workouts"]);
+  });
+});
+
+describe("schema contract against real Postgres", () => {
+  it("accepts two workouts for the same member on the same day", async () => {
+    const seeded = await seedMembers(1);
+
+    try {
+      await testDb
+        .insert(workouts)
+        .values([
+          { date: "2026-08-20", memberId: seeded.members[0].id },
+          { date: "2026-08-20", memberId: seeded.members[0].id },
+        ]);
+
+      const rows = await testDb.select().from(workouts);
+
+      expect(rows).toHaveLength(2);
+    } finally {
+      await seeded.cleanup();
+    }
+  });
+
+  it("rejects a duplicate schedule declaration for one member and date", async () => {
+    const seeded = await seedMembers(1);
+
+    try {
+      const day = {
+        date: "2026-08-21",
+        isWorkout: true,
+        memberId: seeded.members[0].id,
+      };
+      await testDb.insert(scheduleDays).values(day);
+
+      await expect(testDb.insert(scheduleDays).values(day)).rejects.toThrow();
+    } finally {
+      await seeded.cleanup();
+    }
+  });
+});
+
+describe("getDb composition through the production driver", () => {
+  it("round-trips a member", async () => {
+    const db = getDb();
+    const [inserted] = await db
+      .insert(members)
+      .values({
+        email: "round-trip@example.com",
+        name: "Round Trip",
+        passwordHash: "not-a-real-hash",
+      })
+      .returning();
+
+    try {
+      const found = await db.select().from(members);
+
+      expect(found.map((row) => row.email)).toContain("round-trip@example.com");
+    } finally {
+      await testDb.delete(members).where(sql`${members.id} = ${inserted.id}`);
+    }
+  });
+});
+
+describe("seed and cleanup closures", () => {
+  it("inserts the requested members and removes them again", async () => {
+    const seeded = await seedMembers(3);
+
+    expect(seeded.members).toHaveLength(3);
+    expect(await testDb.select().from(members)).toHaveLength(3);
+
+    await seeded.cleanup();
+
+    expect(await testDb.select().from(members)).toHaveLength(0);
+  });
+});
