@@ -5,6 +5,7 @@ set -euo pipefail
 
 CONTAINER=contest-test-pg
 PORT=5433
+TEST_DATABASE_URL="postgresql://postgres:postgres@127.0.0.1:${PORT}/postgres"
 
 if [ -n "$(docker ps -q -f "name=^${CONTAINER}$")" ]; then
   :
@@ -22,6 +23,7 @@ fi
 # returns on the first attempt.
 for _ in $(seq 1 60); do
   if docker exec "$CONTAINER" pg_isready -q -U postgres; then
+    echo "Contest integration database: ${TEST_DATABASE_URL}"
     exit 0
   fi
   sleep 0.5
