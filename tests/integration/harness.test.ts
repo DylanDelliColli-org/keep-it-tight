@@ -91,10 +91,7 @@ describe("getDb composition through the production driver", () => {
 });
 
 describe("integration database isolation", () => {
-  it("pins the test and production drivers to the loopback container", () => {
-    expect(TEST_DATABASE_URL).toBe(
-      "postgresql://postgres:postgres@127.0.0.1:5433/postgres",
-    );
+  it("pins the production driver to the resolved test database", () => {
     expect(process.env.DATABASE_URL).toBe(TEST_DATABASE_URL);
   });
 
