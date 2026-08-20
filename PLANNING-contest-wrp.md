@@ -293,3 +293,163 @@ https://neon.com/faqs/free-plan-limits-and-quotas ·
 https://vercel.com/docs/vercel-blob/usage-and-pricing ·
 https://clerk.com/docs/guides/secure/restricting-access ·
 https://costbench.com/software/developer-tools/clerk/
+
+## ARCHITECTURE
+
+Substage deliverable, 2026-08-20. **Producer substitution (recorded per
+the gate protocol):** the default producer (gaudi, inline) is
+inapplicable — gaudi's epic mode requires child beads, which
+DECOMPOSITION authors two substages later; its --feature mode is
+unimplemented (v2). The orchestrator produced this section inline using
+gaudi's discipline: named decisions, locked tradeoffs, single-owner
+constants, interface contracts. The sequencing gap is jotted.
+
+### FRAMING amendment (operator, ARCHITECTURE gate)
+
+Two FRAMING scoring rulings are **amended by the operator**:
+- The rest-day bonus is removed: a workout is worth the same wherever it
+  lands. S4 remains a story (logging a rest-day workout) but scores
+  identically to S3.
+- Multiple workouts per day are allowed and each earns credit
+  (two-a-days rewarded). The one-credit-per-day cap proposed at this
+  gate is rejected.
+Consequence: the never-schedule exploit identified at this gate
+disappears (there is no bonus to farm), and the schedule's role is
+purely accountability visibility — a declared workout day with no
+workout logged renders as **missed**.
+
+### D1 — Stack (locked)
+
+Next.js 16 App Router + React 19 + TypeScript + Tailwind 4, vitest 4,
+zod, `@/` alias — the twine/qbrs house pattern. Deployed to Vercel under
+the **operator's personal Hobby scope** (operator ruling; keeps Vercel
+Blob and bandwidth inside free allotments). Mobile-web-first UI; no
+native apps (north star).
+
+### D2 — Data layer (locked)
+
+Neon Postgres free plan, provisioned via `vercel integration add neon`.
+Drizzle ORM with in-repo migrations (`drizzle/`), schema at
+`src/db/schema.ts`, lazy `getDb()` at `src/db/index.ts` (no top-level
+client construction; no Proxy wrappers). **One driver everywhere:**
+`drizzle-orm/node-postgres` over `pg` Pool — Neon's pooled TCP URL in
+production, local Docker Postgres in dev/test. This keeps prod and test
+on the identical query path (integration-value rank 1) instead of
+splitting neon-http/prod vs pg/test. drizzle-kit invocations use
+dotenv-cli (does not auto-load `.env.local`).
+
+### D3 — Schema contract (locked)
+
+- `members(id serial PK, name text not null, email text unique not null,
+  password_hash text not null, created_at timestamptz default now())` —
+  exactly three rows, seeded by script; no signup path exists.
+- `schedule_days(member_id int FK, date date, is_workout boolean not
+  null, PK (member_id, date))` — a row is an **explicit declaration**
+  (workout or rest); absence of a row = undeclared. Rows whose date is
+  past in the group zone are **frozen**: the server rejects
+  insert/update/delete for them.
+- `workouts(id serial PK, member_id int FK not null, date date not
+  null, created_at timestamptz default now())` — **no** unique
+  constraint on (member_id, date); each row is one point. The check-off
+  UI writes one row for group-zone-today; additional rows per day are
+  legitimate (two-a-days).
+- `meal_photos(id serial PK, member_id int FK not null, blob_url text
+  not null, blob_pathname text not null, date date not null, created_at
+  timestamptz default now())` — post-wedge.
+- No sessions table: sessions are stateless sealed cookies (D5).
+
+### D4 — Time contract (locked; adopts RESEARCH §4 in full)
+
+`src/lib/week.ts` is the **single owner** of time semantics:
+`GROUP_TZ = 'America/Toronto'`, `todayInGroupZone(now)`,
+`weekStartMonday(date)` (ISO week), `isPastInGroupZone(date, now)` —
+pure functions of an injected clock, unit-tested for midnight
+boundaries, Sunday→Monday rollover, and both DST transitions. The
+server clock is the only clock; clients never send "today". Week math
+lives in TypeScript only — SQL receives computed date ranges as
+parameters, never re-derives zone logic (prevents the same rule living
+in two places, where the copies drift apart — the classic duplicated-
+knowledge smell).
+
+### D5 — Auth (locked: self-auth; operator ruling)
+
+Signed, HttpOnly, SameSite=Lax sealed session cookie (iron-session
+pattern, `SESSION_SECRET` env) over bcrypt password hashes in
+`members`. `src/lib/auth.ts` owns: `verifyLogin(email, password)`,
+`createSession(memberId)`, `requireMember(request)` (returns the member
+or throws 401). Login is a route handler; sign-out clears the cookie.
+Middleware (`proxy.ts`) redirects unauthenticated page loads to
+`/login`; every mutating handler independently calls `requireMember()`
+(defense in depth — the middleware is convenience, the handler check is
+the contract). Seed script `scripts/seed-members.ts` provisions the
+three accounts. No signup surface exists anywhere. Rationale over
+Clerk: hermetic integration tests (rank-1 value, 30 s budget) and zero
+external dependency at three users.
+
+### D6 — API seam (locked)
+
+All **mutations** are route handlers under `src/app/api/*` accepting
+JSON validated by zod schemas from `src/lib/validation.ts`:
+- `POST /api/login` {email, password} → sets cookie
+- `POST /api/logout`
+- `PUT /api/schedule` {days: [{date, is_workout}]} → upserts only
+  non-past dates; any past date in payload → 422 whole-request reject
+- `POST /api/workouts` {} → inserts workout for group-zone-today
+- `DELETE /api/workouts/:id` → undo, own workouts only, today only
+- (post-wedge) `POST /api/meals` multipart/base64 → Blob put + row
+**Reads** for pages go through shared query functions in
+`src/lib/queries.ts`, used by server components directly. Integration
+tests import route-handler functions and invoke them with real
+`Request` objects against local Postgres (RESEARCH §5 seam). Scoring
+reads (`weeklyScores`, `allTimeScores`, `missedDays`) live in
+`src/lib/queries.ts` and delegate arithmetic to `src/lib/scoring.ts`.
+
+### D7 — Scoring contract (locked; operator rulings incl. amendment)
+
+`src/lib/scoring.ts` is the single owner of point arithmetic:
+`POINTS_PER_WORKOUT = 1`; weekly score = count of workout rows dated in
+the group-zone ISO week × 1; all-time = total count × 1. Ties display
+as ties. `missedDays(member, week)` = declared workout days, past, with
+zero workout rows that date — display-only, never a penalty.
+Pure functions over row arrays (unit-tested); `queries.ts` may
+implement the same totals in SQL for efficiency but the pure function
+is the reference implementation and the two are asserted equal in one
+integration test.
+
+### D8 — Consistency and caching (locked)
+
+Single Postgres, strong consistency (a read after a write sees the
+write — the safe default; no replicas, no caches to invalidate).
+Leaderboard computed per request; at three users there is no
+performance case for caching, and adding cache invalidation would be
+speculative complexity. Neon scale-to-zero cold start (~hundreds of ms
+on first request after idle) is accepted and documented as expected
+behavior, not a bug.
+
+### D9 — Photos (locked, post-wedge)
+
+Client-side compression (canvas → JPEG, ~1600 px longest edge, q≈0.8;
+never list image/heic in accept — RESEARCH §2) → `POST /api/meals` →
+server-side `@vercel/blob` `put()` with **public access + random
+pathname suffix** (unguessable URL, CDN-served, free Hobby transfer).
+Rationale over private-access: meal photos are low-sensitivity flex
+content; private access is beta and routes every view's bytes through a
+function. Revisit only on operator objection.
+
+### D10 — Smell risks identified
+
+- **Duplicated knowledge (change-amplification) risk** on time and
+  points constants → prevented by single-owner modules (D4, D7).
+- **Shallow-module risk** on `queries.ts` growing into a grab-bag →
+  bounded: it owns exactly page-read functions and score reads; any
+  logic beyond SQL shaping belongs in scoring.ts/week.ts.
+- No migration risk (greenfield); no smell beads filed (nothing exists
+  to refactor).
+
+### Research assumptions changed
+
+None silently. Explicit deltas: FRAMING scoring amendment (above);
+RESEARCH's open auth question resolved to self-auth; deploy scope
+resolved to personal Hobby; Blob access posture resolved to
+public-unguessable (research had leaned private — overridden with
+rationale in D9).
