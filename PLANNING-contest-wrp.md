@@ -590,3 +590,99 @@ Engineering defaults for DECOMPOSITION to bake into bead acceptance criteria —
 ### Post-wedge delta (S5/S7 marker for DECOMPOSITION)
 
 When bundle E is decomposed: tests/integration/meals.test.ts — auth gate (joins auth case 4's table), zod rejection of a non-image payload, row written with blob_url/blob_pathname from a stubbed @vercel/blob put. The stub is the one permitted fake in the suite: the real seam is a remote billed service, and the E2E layer that would otherwise cover it is banned by NORTH-STAR ruling; client-side canvas compression is manual-use territory under the same ruling. S7's recent-activity feed query cases append to scores.test.ts. This is a delta marker, not a full spec — spec it when E is decomposed.
+
+## RECORD
+
+Substage deliverable, 2026-08-20. An ADR was warranted and produced:
+`docs/adr/0001-app-architecture-and-scoring-contract.md` — the durable
+record of the product contract, technical contract, and test contract.
+Status flips from proposed to accepted at this substage's operator gate.
+
+### Review-gate evidence (design-document review pair, both fresh Codex contexts)
+
+**Bloat review** (subtraction-only, judged against NORTH-STAR.md): six
+cuts proposed. Operator dispositions: cuts 1–2 (defer photos/feed,
+defer all-time tally) already satisfied by the gated wedge sequencing —
+reaffirmed, no change; cut 3 (defer undo) REJECTED — undo stays; cut 4
+ACCEPTED as shrink — the dual scoring implementation and SQL-equality
+assertion are removed, `scoring.ts` survives as sole owner of
+`POINTS_PER_WORKOUT` and the missedDays rule; cut 5 (flatten error
+taxonomy) REJECTED; cut 6 (drop negative-space guards) REJECTED.
+Side record: the bloat reviewer's context ran unsanctioned tracker and
+git commands despite a read-only sandbox flag (bead contest-whi and
+commit cf0c59e record its self-audit; push failed; observation jotted
+against the codex skill). Operator midstream correction, binding for
+future reviews: adversarial reviewers run in fresh herdr panes.
+
+**Spec validation** (refinement-only, on the post-bloat document, fresh
+Codex herdr pane): eight findings, all resolved. Mechanical fixes
+applied to the ADR: (1) login/logout explicitly outside the
+requireMember invariant — first login is possible again; (5) POST
+/api/workouts strict-empty-object schema restored to the durable
+record; (6) zero-score-member-always-present guarantee preserved in
+the durable test contract; (8) ADR status corrected to proposed until
+this gate. Operator rulings on the other four: (2) undeclared days are
+LEGAL and unpenalized — recorded as an explicit decision; (3) edit
+horizon is ANY future date (FRAMING amendment — not limited to the
+current week); (4) PUT /api/schedule becomes WEEK-REPLACE semantics —
+omitted future day = undeclared, which is how un-declaring works; (7)
+resolved at the root by a further operator amendment: **schedule edits
+are allowed strictly for D > today** — today and past days are frozen,
+so feed labels are stable by construction and render-time computation
+is safe.
+
+### Amendments locked at this substage (supersede earlier sections)
+
+1. Freeze rule is **D > today** (was: D ≥ today in ARCHITECTURE; was:
+   "editable until the day passes" in FRAMING). No same-day schedule
+   edits, ever.
+2. Edit horizon: any strictly-future date, any week.
+3. PUT /api/schedule: week-replace (payload names one week's Monday +
+   declarations; atomically replaces that week's strictly-future
+   declarations; omitted day = undeclared; any non-strictly-future or
+   outside-week date = 422 whole-reject, nothing applied).
+4. No dual scoring path, no SQL-equality test (bloat shrink).
+5. Undeclared days legal; missed = declared workout day + past + zero
+   workout rows, unchanged.
+
+### TEST-STRATEGY deltas (DECOMPOSITION must bake these in; the
+TEST-STRATEGY section above predates the amendments)
+
+- week.test.ts case 7: predicate becomes isEditableScheduleDate(D,
+  now) = D > todayInGroupZone(now). With clock 2026-08-20T04:00:00Z:
+  '2026-08-19' → false, '2026-08-20' (today) → **false**, '2026-08-21'
+  → true; with clock 2026-08-20T03:59:00Z: '2026-08-20' → true (still
+  strictly future at that instant).
+- schedule.test.ts case 1: payload dates must be strictly future at
+  the pinned clock (use 2026-08-21/2026-08-22 under the Aug-20 clock);
+  semantics become week-replace — a re-PUT of the same week omitting a
+  previously declared future day must DELETE that row; payload shape
+  gains the week's Monday date.
+- schedule.test.ts case 3 INVERTS: {date: today} → 422 (today is
+  frozen), nothing written.
+- schedule.test.ts case 4 (midnight pair, still UTC-bug-hunting):
+  payload {date:'2026-08-21'} at clock 2026-08-21T03:59:00Z (Toronto
+  Aug 20 23:59 — strictly future) → 200; identical payload at
+  2026-08-21T04:00:00Z (Toronto Aug 21 00:00 — now today) → 422. At
+  both instants the UTC date is already 08-21.
+- schedule.test.ts: add one outside-named-week date → 422 whole-reject
+  case (new week-replace boundary).
+- scores.test.ts case 1: dual-path equality assertion REMOVED; keep
+  the expected-value assertions through the SQL read path only
+  (member1=3, member2=2, member3=0 weekly; 4/2/0 all-time) — member3's
+  presence at 0 is the preserved zero-score guarantee.
+- auth.test.ts: unchanged; login/logout being outside requireMember is
+  now explicit in the ADR rather than implied.
+- workouts.test.ts: unchanged (check-off and undo both operate on
+  today; the schedule freeze does not touch them).
+- Budget effect: net-zero to slightly negative (one case removed, one
+  added, one inverted); estimate stays ~16 s.
+
+### Substitutions and open questions
+
+Producer substitutions this run: ARCHITECTURE produced inline by the
+orchestrator (gaudi epic mode requires children that DECOMPOSITION has
+not yet minted — jotted); RECORD review pair ran as Codex contexts
+(bloat via codex exec before the operator's herdr-pane correction; spec
+validation in a fresh herdr pane). Open questions: none — every
+reviewer finding carries an operator disposition above.
