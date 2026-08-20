@@ -686,3 +686,72 @@ not yet minted — jotted); RECORD review pair ran as Codex contexts
 (bloat via codex exec before the operator's herdr-pane correction; spec
 validation in a fresh herdr pane). Open questions: none — every
 reviewer finding carries an operator disposition above.
+
+## DECOMPOSITION
+
+Substage deliverable, 2026-08-20. Children authored from the accepted
+ADR plus the RECORD amendments — not from RESEARCH fingerprints or
+conversation memory.
+
+### Children (wedge, dependency-ordered) and story traceability
+
+- **contest-wrp.1** Scaffold app + data layer + week/scoring modules
+  with unit tests — S2/S3/S6 foundations. [bundle-a, wedge]
+- **contest-wrp.2** Integration-test harness: dockerized Postgres
+  5433, two-config vitest, seed/cleanup — cross-cutting test
+  substrate. [bundle-a, wedge]
+- **contest-wrp.3** Self-auth: sealed cookie sessions, login/logout,
+  seed script, no signup surface — S1. [bundle-b, wedge]
+- **contest-wrp.4** Schedule editor (week-replace, strict-future
+  freeze) + workout check-off/undo — S2 + S3. [bundle-c, wedge]
+- **contest-wrp.5** Weekly leaderboard with missed-day chips and
+  zero-score visibility — S6 (weekly only). [bundle-d, wedge]
+- **contest-wrp.6** Provision and deploy (OPERATOR-IN-LOOP) —
+  deferred status, outside the ready front until the operator
+  activates it. [wedge, operator-gated]
+
+Post-wedge stories (S4 labeling nuance, S5 meal photos, S7 feed,
+all-time tally) are **deliberately unminted** (bloat cuts 1–2
+reaffirmed): the revival observation is the wedge proving out in real
+use. Bundle E is dropped as a minted group; it exists only as the ADR's
+post-wedge decisions.
+
+### Footprints, groups, and overlap handling
+
+Every child carries a "## File footprint" section with the full
+predicted file set including shared surfaces (package.json, README.md,
+src/env.ts, src/app/page.tsx, global-teardown.ts, helpers/seed.ts,
+auth.test.ts, queries.ts). RESEARCH bundle candidates re-derived
+against the locked architecture: A retained (now scaffold+harness =
+.1+.2), B retained (.3), C retained and merged to one bead (.4 — the
+grid, validation, and queries surfaces made two lanes collide), D
+retained (.5) with its RESEARCH-era "can lane separately after A"
+claim DROPPED — .5 shares queries.ts and page.tsx with .4, so the
+overlap is resolved by hard dependency (.5 needs .4) rather than a
+same-lane tag. The chain is strictly linear (.1→.2→.3→.4→.5→.6), so no
+two beads sharing a file can be simultaneously ready.
+
+### Checks
+
+- br lint: clean (6 issues checked, zero warnings) after adding
+  Acceptance Criteria sections and epic Success Criteria.
+- br ready: exactly contest-wrp.1. Deferred .6 correctly absent.
+- Dependency direction: requirement language throughout, verified by
+  the freshness reviewer.
+- Coverage-loss tripwires: no cases folded (the removed equality case
+  accompanied removal of its production path at the RECORD gate); no
+  tests deleted while behavior stays live; no assertions thinned (auth
+  case 1's staged tightening across .3→.4 is explicit in both beads).
+- Self-negating sweep clauses: none — no acceptance orders a
+  grep-to-zero sweep; the no-signup guard is a test assertion scoped
+  to src/app path segments, not a removal order.
+
+### Freshness verdict (victor-type reviewer, no planning context)
+
+All six PASS the Fresh Agent Test; every cited artifact exists; the
+ADR states every contract the beads attribute to it; shared-surface
+footprints consistent; inline test-spec arithmetic (DST instants,
+midnight pairs, ISO rollovers, leaderboard fixtures) independently
+verified correct for America/Toronto 2026. Two citation nits found and
+fixed in place (bead 1's decision numbering; numbered RECORD-amendment
+references replaced with ADR decision numbers in .1/.4/.5).

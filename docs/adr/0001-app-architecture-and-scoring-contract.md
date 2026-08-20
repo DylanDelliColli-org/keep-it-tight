@@ -5,10 +5,10 @@ lifecycle: active
 
 # ADR 0001: keep-it-tight architecture and scoring contract
 
-- **Status:** proposed 2026-08-20; acceptance is recorded at the
-  RECORD gate of the contest-wrp Full planning run (contest-wrp is the
-  planning epic for the whole app). Substages FRAMING through
-  TEST-STRATEGY carry operator gate approvals of this date.
+- **Status:** accepted 2026-08-20 at the RECORD gate of the
+  contest-wrp Full planning run (contest-wrp is the planning epic for
+  the whole app), after the bloat-review/spec-validation pair; every
+  substage carries an operator gate approval of this date.
 - **Deciders:** operator (all rulings), orchestrator session (record),
   sherlock-type producer (research), columbo-type producer (test
   contract).
