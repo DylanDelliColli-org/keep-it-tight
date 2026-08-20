@@ -1,5 +1,6 @@
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { parse } from "pg-connection-string";
 
 import * as schema from "@/db/schema";
 
@@ -13,11 +14,11 @@ export function resolveTestDatabaseUrl(
 ): string {
   const connectionString =
     environment.CONTEST_TEST_DATABASE_URL ?? DEFAULT_TEST_DATABASE_URL;
-  const host = new URL(connectionString).hostname;
+  const { host } = parse(connectionString);
 
-  if (!LOOPBACK_HOSTS.has(host)) {
+  if (host === null || !LOOPBACK_HOSTS.has(host)) {
     throw new Error(
-      `Integration tests require a loopback database host; received ${host}`,
+      `Integration tests require a loopback database host; received ${host ?? "<missing>"}`,
     );
   }
 

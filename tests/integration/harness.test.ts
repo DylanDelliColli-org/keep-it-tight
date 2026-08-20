@@ -106,6 +106,24 @@ describe("integration database isolation", () => {
       }),
     ).toThrow(/db\.example\.com/);
   });
+
+  it("rejects a query parameter that overrides the authority host", () => {
+    expect(() =>
+      resolveTestDatabaseUrl({
+        CONTEST_TEST_DATABASE_URL:
+          "postgresql://u:pw@127.0.0.1:5433/db?host=db.example.com",
+      }),
+    ).toThrow(/db\.example\.com/);
+  });
+
+  it("rejects a query parameter that redirects to a Unix socket", () => {
+    expect(() =>
+      resolveTestDatabaseUrl({
+        CONTEST_TEST_DATABASE_URL:
+          "postgresql://u:pw@127.0.0.1:5433/db?host=%2Fvar%2Frun%2Fpostgresql",
+      }),
+    ).toThrow(/\/var\/run\/postgresql/);
+  });
 });
 
 describe("seed and cleanup closures", () => {
