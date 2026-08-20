@@ -453,3 +453,140 @@ RESEARCH's open auth question resolved to self-auth; deploy scope
 resolved to personal Hobby; Blob access posture resolved to
 public-unguessable (research had leaned private — overridden with
 rationale in D9).
+
+## TEST-STRATEGY
+
+Substage deliverable, 2026-08-20 (Columbo, non-interview mode — derived entirely from NORTH-STAR test values, FRAMING S1–S7 with the ARCHITECTURE-gate scoring amendment, RESEARCH §5 + addendum seam, and ARCHITECTURE D1–D10). No beads minted and no skeleton files written — DECOMPOSITION owns both.
+
+### Ground rules
+
+- **Layers.** Per NORTH-STAR test values: integration (rank 1) and unit (rank 2) only. E2E and smoke are deliberately not run (operator ruling 2026-08-20), so no E2E tag exists in this repo; tags are [INT] and [UNIT].
+- **Extend-vs-new is moot.** The repo is greenfield (verified at planning time: no src/, no tests/, no package.json; measured existing suite = 0 s). Every proposal below is new by necessity. Said once, not repeated.
+- **Budget.** FULL_SUITE_WALL_CLOCK_BUDGET_SECONDS = 30; the full 30 s is remaining budget. All runtimes below are ESTIMATES (nothing exists to measure). The first implementation PR should record actuals next to these estimates.
+- **Harness mechanics** (adopts RESEARCH §5 discipline via the addendum's revised seam, plus D2/D4/D6):
+  - Two vitest configs (qbrs/twine pattern): `vitest.config.ts` (unit; excludes tests/integration) and `vitest.integration.config.ts` (`environment: 'node'`, `fileParallelism: false` — integration estimates are therefore additive).
+  - Integration seam: import route-handler functions from `src/app/api/**` and invoke them with real `Request` objects against the dedicated dockerized Postgres 17 on port 5433. Drizzle migrations applied once per session in vitest `globalSetup`. Seed/cleanup closures per fixture; never a per-run db reset.
+  - Budget excludes container boot: the suite assumes a warm contest-postgres container (RESEARCH risk 5 carried over). The run script may `docker start` a stopped container; a cold `docker run`/image pull is outside the 30 s.
+  - **Clock control:** handlers obtain now via `new Date()` and pass it into week.ts's injected-clock functions (D4). Integration tests pin time with `vi.useFakeTimers({ toFake: ['Date'] })` — Date only, so pg socket timers are unaffected. This is what makes every freeze/midnight case below deterministic.
+  - **bcrypt fixtures at cost 4.** Production seeding (scripts/seed-members.ts) uses a real cost; test fixtures hash at cost 4 so login cases don't eat the budget. The contract is "any valid bcrypt hash", so this is legitimate.
+
+### Story-by-test matrix
+
+Wedge = S1/S2/S3/S6; post-wedge = S4/S5/S7.
+
+| Story | Covering tests | Layer |
+|---|---|---|
+| S1 Identify (wedge) | auth.test.ts: login success / bad password / unknown email, cookie attributes, table-driven no-cookie 401 across every mutating handler | INT |
+| S2 Schedule (wedge) | schedule.test.ts: upsert, freeze 422 whole-request reject, midnight-boundary flip; week.test.ts: isPastInGroupZone | INT + UNIT |
+| S3 Check-off (wedge) | workouts.test.ts: server-computed today, two-a-day, near-midnight determinism, undo restrictions; scoring.test.ts: multi-row counting | INT + UNIT |
+| S4 Extra workout (post-wedge; scores identically to S3 after the ARCHITECTURE-gate amendment) | scoring.test.ts: rest-day-workout-equals-one-point case, pinning no-bonus. No dedicated integration case: post-amendment the POST /api/workouts handler has no schedule-dependent branch, so S3's integration cases ARE S4's | UNIT |
+| S5 Meal photo (post-wedge) | deferred — see "Post-wedge delta": auth gate + row-write INT with stubbed Blob put; client-side compression is manual-use territory per the no-E2E ruling | INT (partial), later |
+| S6 Leaderboard (wedge) | scores.test.ts: D7 reference-vs-SQL equality, tie behavior, weekly/all-time split, zero-score member present; scoring.test.ts: tie + week-window cases | INT + UNIT |
+| S7 Feed (post-wedge) | missedDays specced NOW because it is D7 wedge logic: scoring.test.ts UNIT + scores.test.ts INT; recent-activity feed query deferred | UNIT + INT |
+| Cross-cutting D4 time contract | week.test.ts: DST both directions, Sunday→Monday rollover, midnight boundary, cross-year ISO week | UNIT |
+
+### Proposed test files and cases
+
+Dates below use real 2026 facts: Toronto is EDT (UTC−4) in August, so group-zone midnight = 04:00Z; 2026-08-17 is a Monday and 2026-08-20 a Thursday; DST spring-forward is 2026-03-08 02:00 EST, fall-back 2026-11-01 02:00 EDT.
+
+#### tests/unit/week.test.ts [UNIT] — src/lib/week.ts (pure, injected clock) — est. 0.5 s
+
+1. Midnight boundary: todayInGroupZone(2026-08-20T03:59:00Z) = '2026-08-19'; at 04:00:00Z = '2026-08-20'. Why: at both instants the UTC date is already 08-20 — this pair catches a UTC-based implementation.
+2. Sunday→Monday rollover: at 2026-08-24T03:59:00Z (Sunday 23:59 Toronto) weekStartMonday(todayInGroupZone(now)) = '2026-08-17'; at 04:00:00Z (Monday 00:00) = '2026-08-24'. Why: the weekly race resets exactly at Monday 00:00 group time.
+3. weekStartMonday semantics: weekStartMonday('2026-08-17') = '2026-08-17' (Monday maps to itself); weekStartMonday('2026-08-23') = '2026-08-17' (Sunday belongs to the week begun the previous Monday — ISO semantics).
+4. Cross-year ISO week: weekStartMonday('2026-01-01') = '2025-12-29' (Jan 1 2026 is a Thursday). Why: year-clamped week math breaks exactly here.
+5. DST spring forward (23 h day): todayInGroupZone(2026-03-08T06:59:00Z) = '2026-03-08' (01:59 EST); (2026-03-08T07:00:00Z) = '2026-03-08' (03:00 EDT — the skipped hour); day-before boundary still at 05:00Z (04:59:00Z → '2026-03-07', 05:00:00Z → '2026-03-08'); day-after boundary shifts to 04:00Z (2026-03-09T03:59:00Z → '2026-03-08', 04:00:00Z → '2026-03-09'). Why: proves boundaries follow local wall clock through the offset change; a fixed-offset implementation fails the last pair.
+6. DST fall back (25 h day): todayInGroupZone(2026-11-01T05:30:00Z) = '2026-11-01' (01:30 EDT, first pass); (2026-11-01T06:30:00Z) = '2026-11-01' (01:30 EST, repeated hour — same date); next midnight at 05:00Z (2026-11-02T04:59:00Z → '2026-11-01', 05:00:00Z → '2026-11-02').
+7. isPastInGroupZone freeze predicate: with clock 2026-08-20T04:00:00Z — ('2026-08-19') = true, ('2026-08-20') = false (today is editable), ('2026-08-21') = false; and with clock 2026-08-20T03:59:00Z — ('2026-08-19') = false. Why: the exact D ≥ today comparison, tested on both sides of the midnight flip.
+
+#### tests/unit/scoring.test.ts [UNIT] — src/lib/scoring.ts (D7 pure reference implementation) — est. 0.5 s
+
+1. Multi-workout-per-day counting: rows dated 2026-08-17, 2026-08-19, 2026-08-19 → weekly score for week '2026-08-17' = 3. Why: pins the amendment — two-a-days each earn credit, no per-day cap.
+2. Week-window exclusion: add rows 2026-08-16 (Sunday, prior ISO week) and 2026-08-24 (next Monday) → weekly score still 3.
+3. POINTS_PER_WORKOUT: 3 rows → exactly 3 points (integer equality; guards a drive-by change to the constant).
+4. Rest-day equivalence (S4 post-amendment): schedule declares 2026-08-18 rest; workout rows on 2026-08-17 (scheduled) and 2026-08-18 (rest day) → weekly score = 2 exactly. Why: pins "no bonus" so the pre-amendment bonus rule cannot silently resurface.
+5. Tie behavior: members A and B with 2 rows each in the week → both score 2 and are represented as tied (equal rank, no hidden tiebreaker ordering).
+6. Zero-score member present: a member with no rows appears with score 0, not absent. Why: the skipped session must be visible — that invisibility is the product failure the app exists to prevent.
+7. missedDays display logic: schedule Mon 08-17 workout, Tue 08-18 workout, Wed 08-19 rest, Thu 08-20 workout; workout rows only on 08-17; clock 2026-08-20T12:00:00Z → missedDays = ['2026-08-18'] exactly: 08-17 done, 08-19 rest is never missable, 08-20 is today (not past), and undeclared days (08-16, no row) never appear. Why: absence-of-row = undeclared, and missed is strictly declared + past + zero rows.
+8. missedDays never penalizes: same fixture — weekly score = 1 (display-only, nothing subtracted).
+
+#### tests/integration/auth.test.ts [INT] — login/logout handlers, requireMember, API-surface guard — est. 3.0 s
+
+Fixture: 3 seeded members (bcrypt cost 4), cleanup closure.
+
+1. Login success: POST /api/login {email: seeded, password: correct} → 200; Set-Cookie carries HttpOnly and SameSite=Lax; a follow-up POST /api/workouts with that cookie succeeds as that member (round-trips the session end to end).
+2. Bad password: correct email + 'wrong-password' → 401, no Set-Cookie.
+3. Unknown email: 'nobody@example.com' → 401 (same status as bad password; no user-enumeration distinction).
+4. No cookie never reaches handler logic: table-driven over EVERY mutating handler in D6 — PUT /api/schedule, POST /api/workouts, DELETE /api/workouts/:id (POST /api/meals joins when it lands) — request without Cookie → 401 AND the corresponding table's row count unchanged. Why: D5 makes the handler check the contract and middleware mere convenience; this proves defense-in-depth at the seam, not in proxy.ts.
+5. Tampered cookie: Cookie: session=garbage on PUT /api/schedule → 401, zero schedule rows written.
+6. API-surface guard (negative space): enumerate src/app/api/**/route.ts on disk; assert the mutating surface equals exactly the D6 list, and assert no path segment matching signup/register/sign-up exists anywhere under src/app. Why: any new mutation path must consciously join the 401 table in case 4, and the no-signup non-goal is enforced mechanically rather than by memory.
+7. Logout: POST /api/logout with a valid cookie → response issues a clearing Set-Cookie; a request with the emptied cookie → 401. (Sealed stateless cookies cannot be revoked server-side — an old copied cookie stays valid until expiry; accepted at this threat model, noted for DECOMPOSITION.)
+
+#### tests/integration/schedule.test.ts [INT] — PUT /api/schedule, freeze rule — est. 2.5 s
+
+Fixture: one seeded member + session cookie; clock pinned per case.
+
+1. Upsert non-past days: clock 2026-08-20T12:00:00Z (today = Thu 08-20); payload {days:[{date:'2026-08-20',is_workout:true},{date:'2026-08-22',is_workout:false}]} → 200, both rows present with those booleans. Re-PUT {date:'2026-08-22',is_workout:true} → row flipped, still exactly one row for that date (PK upsert, no duplicates).
+2. Freeze — whole-request 422, nothing partially applied: pre-seed frozen row (member, '2026-08-19', is_workout=true). Payload mixing past + future: [{date:'2026-08-19',is_workout:false},{date:'2026-08-21',is_workout:true}] → 422; assert '2026-08-19' still is_workout=true (no retroactive rest day) AND no row exists for '2026-08-21' (the valid half was NOT applied). Why: the atomicity contract — reject-all, never skip-bad.
+3. Today is editable: {date:'2026-08-20'} accepted at the same clock (D ≥ today includes today).
+4. Midnight flip distinguishes group zone from UTC: payload {date:'2026-08-20',is_workout:true} at clock 2026-08-21T03:59:00Z (Toronto Aug 20, 23:59) → 200; identical payload at 2026-08-21T04:00:00Z (Toronto Aug 21, 00:00) → 422. Why: at BOTH instants the UTC date is already 08-21 — a UTC-based freeze wrongly rejects the first request; this pair catches it.
+5. Shape validation: {days:[{date:'2026-8-2',is_workout:true}]} (malformed date) and {days:[{date:'2026-08-22',is_workout:'yes'}]} → 400, zero rows written (zod boundary per D6; status-code contract below).
+
+#### tests/integration/workouts.test.ts [INT] — POST /api/workouts, DELETE /api/workouts/:id — est. 3.0 s
+
+Fixture: members A and B seeded, session cookies for both.
+
+1. Check-off writes group-zone-today: clock 2026-08-20T12:00:00Z; POST {} with A's cookie → 2xx; exactly one new row with member_id = A and date = '2026-08-20', server-computed.
+2. Client-supplied date never overrides server today: POST {date:'2026-08-01'} → 400 via strict empty-object zod schema, zero rows written (proposed contract below; the guarantee either way is that no row ever carries a client-chosen date).
+3. Two-a-day: POST {} twice with A's cookie at the same clock → two rows both dated '2026-08-20'; weeklyScores via queries shows A = 2.
+4. Near-midnight determinism: POST at clock 2026-08-21T03:59:30Z → row date '2026-08-20'; POST at 2026-08-21T04:00:30Z → row date '2026-08-21'. Why: D4's "a tap at 23:59 arriving 00:01 counts for the new day, deterministically" made executable.
+5. Undo own + today: A checks off today, DELETE /api/workouts/:id with A's cookie → 2xx, row gone.
+6. Cannot delete another member's workout: seed a row owned by B dated today; DELETE with A's cookie → 404 (proposed: not-found rather than 403, no existence leak), row still present.
+7. Undo restricted to today: seed a row owned by A dated '2026-08-19'; DELETE with A's cookie at clock 2026-08-20T12:00:00Z → 403, row still present. Why: history is frozen the same way the schedule is; undo is a same-day fat-finger fix, not retroactive editing.
+
+#### tests/integration/scores.test.ts [INT] — queries.ts read seam + D7 equality — est. 2.5 s
+
+Fixture: 3 members; clock 2026-08-20T12:00:00Z.
+
+1. D7 reference-vs-SQL equality (the locked assertion): seed a deliberately messy set — member 1: rows 2026-08-17, 2026-08-19 twice, 2026-08-16 (prior ISO week); member 2: 2026-08-18, 2026-08-23 (Sunday — still week '2026-08-17'); member 3: none. Assert queries.weeklyScores('2026-08-17') (SQL path) deep-equals scoring.weeklyScores over the fetched raw rows (pure reference) AND both say member1=3, member2=2, member3=0. Same double-path assertion for all-time (member1=4, member2=2, member3=0). Why: D7 names the pure function the reference implementation and requires the SQL copy proven equal in one integration test — this is that test.
+2. Tie through the read seam: members 1 and 2 at 2 rows each this week → weeklyScores represents them as tied (equal score, equal rank, no tiebreak), through real SQL.
+3. missedDays through the seam: the unit-case-7 fixture seeded into real tables → queries.missedDays(member1, '2026-08-17') = ['2026-08-18']; weekly score unaffected (= 1). Why: same contract as the unit case, but proven against real DATE columns with week ranges passed as parameters (D4: SQL never re-derives zone logic).
+4. Weekly vs all-time split: member with rows 2026-07-06 and 2026-08-17 → weekly('2026-08-17') = 1, all-time = 2.
+
+### Negative space — what must NOT exist or happen
+
+| Must not | Enforced by |
+|---|---|
+| No signup route/handler anywhere (NORTH-STAR non-goal 1, D5) | auth case 6 filesystem guard: no signup/register path under src/app, mutating surface = exactly D6's list; plus the teardown invariant below |
+| Past schedule rows immutable via every mutation path | auth case 6 proves PUT /api/schedule is the ONLY schedule mutation path; schedule cases 2 and 4 prove that path rejects past dates atomically |
+| One member cannot delete another's workout | workouts case 6 |
+| Unauthenticated requests never reach handler logic | auth cases 4 and 5 — 401 AND row counts unchanged, per handler |
+| Client-supplied dates never override server-computed today | workouts case 2 (strict schema), cases 1 and 4 (date server-derived), case 7 (undo cannot reach back) |
+| Members table never grows | integration global-teardown asserts members row count equals the seeded count after the full suite — no code path creates members |
+
+### Budget
+
+| File | Est. |
+|---|---|
+| tests/unit/week.test.ts | 0.5 s |
+| tests/unit/scoring.test.ts | 0.5 s |
+| unit config startup | 1.0 s |
+| tests/integration/auth.test.ts | 3.0 s |
+| tests/integration/schedule.test.ts | 2.5 s |
+| tests/integration/workouts.test.ts | 3.0 s |
+| tests/integration/scores.test.ts | 2.5 s |
+| integration startup + drizzle migrate (once per session) | 3.0 s |
+| **Wedge total (estimated)** | **~16 s of 30 s** |
+
+Roughly 45 cases, inside RESEARCH §5's 30–60 fit. The ~14 s headroom is deliberate: post-wedge additions (meals INT with stubbed Blob, feed query cases appended to scores.test.ts) are estimated +4–5 s, landing the end-state suite around 21 s. If actuals blow past estimates, cut by unique-confidence in this order: schedule case 5 (shape validation — mostly library behavior), one side of workouts case 4 (one boundary side suffices once week.test.ts is green), auth case 3 (unknown email). Never cut the D7 equality, the freeze-atomicity case, or either midnight-flip pair — those carry the highest unique confidence per second.
+
+### Proposed status-code contracts (stated loudly, not assumed silently)
+
+Engineering defaults for DECOMPOSITION to bake into bead acceptance criteria — adjust there if desired, then the cases above adjust with them:
+- 422 = semantically rejected (freeze violations — per the locked whole-request-reject contract); 400 = shape-invalid (zod parse failure, including unknown fields via strict schemas, which is what makes workouts case 2 mechanical).
+- DELETE of a workout that is not yours → 404 (no existence leak); DELETE of your own non-today workout → 403.
+- POST /api/workouts body schema: strict empty object.
+
+### Post-wedge delta (S5/S7 marker for DECOMPOSITION)
+
+When bundle E is decomposed: tests/integration/meals.test.ts — auth gate (joins auth case 4's table), zod rejection of a non-image payload, row written with blob_url/blob_pathname from a stubbed @vercel/blob put. The stub is the one permitted fake in the suite: the real seam is a remote billed service, and the E2E layer that would otherwise cover it is banned by NORTH-STAR ruling; client-side canvas compression is manual-use territory under the same ruling. S7's recent-activity feed query cases append to scores.test.ts. This is a delta marker, not a full spec — spec it when E is decomposed.
