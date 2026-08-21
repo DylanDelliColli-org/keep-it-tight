@@ -11,7 +11,7 @@ DEFAULT_DATABASE_URL="postgresql://postgres:postgres@127.0.0.1:${PORT}/postgres"
 # An explicitly empty override is rejected rather than silently defaulted:
 # ${VAR:-default} would treat empty as absent, while the harness's ?? would
 # not, and the two would then resolve different databases.
-if [ -n "${CONTEST_TEST_DATABASE_URL+set}" ] && [ -z "${CONTEST_TEST_DATABASE_URL// /}" ]; then
+if [ -n "${CONTEST_TEST_DATABASE_URL+set}" ] && [ -z "${CONTEST_TEST_DATABASE_URL//[[:space:]]/}" ]; then
   echo "CONTEST_TEST_DATABASE_URL is set but empty; unset it to use the default test database" >&2
   exit 1
 fi
