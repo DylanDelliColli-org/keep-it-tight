@@ -8,6 +8,14 @@ PORT=5433
 DEFAULT_DATABASE_URL="postgresql://postgres:postgres@127.0.0.1:${PORT}/postgres"
 # Resolve the target the way the harness does, honoring the same override, so
 # this script can never bring up or approve a database Vitest will not use.
+# An explicitly empty override is rejected rather than silently defaulted:
+# ${VAR:-default} would treat empty as absent, while the harness's ?? would
+# not, and the two would then resolve different databases.
+if [ -n "${CONTEST_TEST_DATABASE_URL+set}" ] && [ -z "${CONTEST_TEST_DATABASE_URL// /}" ]; then
+  echo "CONTEST_TEST_DATABASE_URL is set but empty; unset it to use the default test database" >&2
+  exit 1
+fi
+
 TEST_DATABASE_URL="${CONTEST_TEST_DATABASE_URL:-$DEFAULT_DATABASE_URL}"
 
 # CI provides Postgres as a service container before this script runs. Check

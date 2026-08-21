@@ -12,8 +12,18 @@ type TestDatabaseEnvironment = Readonly<Record<string, string | undefined>>;
 export function resolveTestDatabaseUrl(
   environment: TestDatabaseEnvironment = process.env,
 ): string {
-  const connectionString =
-    environment.CONTEST_TEST_DATABASE_URL ?? DEFAULT_TEST_DATABASE_URL;
+  const override = environment.CONTEST_TEST_DATABASE_URL;
+
+  // An explicitly empty override is a mistake, not a request for the default.
+  // Rejecting it here keeps this resolver and scripts/test-db.sh agreeing:
+  // shell ${VAR:-default} would silently treat empty as absent.
+  if (override !== undefined && override.trim() === "") {
+    throw new Error(
+      "CONTEST_TEST_DATABASE_URL is set but empty; unset it to use the default test database",
+    );
+  }
+
+  const connectionString = override ?? DEFAULT_TEST_DATABASE_URL;
   const { host } = parse(connectionString);
 
   if (host === null || !LOOPBACK_HOSTS.has(host)) {
