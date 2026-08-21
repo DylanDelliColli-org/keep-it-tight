@@ -9,6 +9,8 @@ import { assertMembersTableDidNotGrow } from "./global-teardown";
 // idempotent, so a warm database stays warm across runs.
 export async function setup(): Promise<void> {
   process.env.DATABASE_URL = TEST_DATABASE_URL;
+  process.env.SESSION_SECRET =
+    "integration-test-session-secret-that-is-at-least-thirty-two-bytes";
 
   const pool = new Pool({ connectionString: TEST_DATABASE_URL });
 
