@@ -1,11 +1,17 @@
-import { sql } from "drizzle-orm";
+import { compare } from "bcryptjs";
+import { eq, sql } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
 
 import { members, scheduleDays, workouts } from "@/db/schema";
 import { getDb } from "@/db";
 
-import { closeTestPool, testDb } from "./helpers/db";
-import { seedMembers } from "./helpers/seed";
+import {
+  closeTestPool,
+  resolveTestDatabaseUrl,
+  TEST_DATABASE_URL,
+  testDb,
+} from "./helpers/db";
+import { FIXTURE_PASSWORD, seedMembers } from "./helpers/seed";
 
 afterAll(async () => {
   await closeTestPool();
@@ -84,6 +90,39 @@ describe("getDb composition through the production driver", () => {
   });
 });
 
+describe("integration database isolation", () => {
+  it("pins the production driver to the resolved test database", () => {
+    expect(process.env.DATABASE_URL).toBe(TEST_DATABASE_URL);
+  });
+
+  it("rejects a configured non-loopback host and names it", () => {
+    expect(() =>
+      resolveTestDatabaseUrl({
+        CONTEST_TEST_DATABASE_URL:
+          "postgresql://user:pw@db.example.com:5432/prod",
+      }),
+    ).toThrow(/db\.example\.com/);
+  });
+
+  it("rejects a query parameter that overrides the authority host", () => {
+    expect(() =>
+      resolveTestDatabaseUrl({
+        CONTEST_TEST_DATABASE_URL:
+          "postgresql://u:pw@127.0.0.1:5433/db?host=db.example.com",
+      }),
+    ).toThrow(/db\.example\.com/);
+  });
+
+  it("rejects a query parameter that redirects to a Unix socket", () => {
+    expect(() =>
+      resolveTestDatabaseUrl({
+        CONTEST_TEST_DATABASE_URL:
+          "postgresql://u:pw@127.0.0.1:5433/db?host=%2Fvar%2Frun%2Fpostgresql",
+      }),
+    ).toThrow(/\/var\/run\/postgresql/);
+  });
+});
+
 describe("seed and cleanup closures", () => {
   it("inserts the requested members and removes them again", async () => {
     const seeded = await seedMembers(3);
@@ -94,5 +133,24 @@ describe("seed and cleanup closures", () => {
     await seeded.cleanup();
 
     expect(await testDb.select().from(members)).toHaveLength(0);
+  });
+
+  it("stores a real cost-4 bcrypt hash for the fixture password", async () => {
+    const seeded = await seedMembers(1);
+
+    try {
+      const [stored] = await testDb
+        .select({ passwordHash: members.passwordHash })
+        .from(members)
+        .where(eq(members.id, seeded.members[0].id));
+
+      expect(stored.passwordHash).toMatch(/^\$2[aby]\$04\$/);
+      expect(stored.passwordHash).toHaveLength(60);
+      await expect(compare(FIXTURE_PASSWORD, stored.passwordHash)).resolves.toBe(
+        true,
+      );
+    } finally {
+      await seeded.cleanup();
+    }
   });
 });
