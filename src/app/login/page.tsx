@@ -2,6 +2,24 @@
 
 import { type FormEvent, useState } from "react";
 
+export function localRedirectTarget(
+  target: string | null,
+  currentUrl: string,
+): string {
+  try {
+    const current = new URL(currentUrl);
+    const resolved = new URL(target ?? "/", current);
+
+    if (resolved.origin !== current.origin) {
+      return "/";
+    }
+
+    return `${resolved.pathname}${resolved.search}${resolved.hash}`;
+  } catch {
+    return "/";
+  }
+}
+
 export default function LoginPage() {
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -23,9 +41,7 @@ export default function LoginPage() {
 
     if (response.ok) {
       const next = new URLSearchParams(window.location.search).get("next");
-      window.location.assign(
-        next?.startsWith("/") && !next.startsWith("//") ? next : "/",
-      );
+      window.location.assign(localRedirectTarget(next, window.location.href));
       return;
     }
 

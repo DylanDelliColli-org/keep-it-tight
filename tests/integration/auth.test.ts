@@ -1,7 +1,7 @@
 import { readdir } from "node:fs/promises";
 import { relative, resolve, sep } from "node:path";
 
-import { count } from "drizzle-orm";
+import { count, eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { members, scheduleDays, workouts } from "@/db/schema";
@@ -268,6 +268,88 @@ describe("member provisioning", () => {
       "Seed 2 Updated",
       "Seed 3 Updated",
     ]);
+  });
+
+  it("replaces a removed history-free account and disables its login", async () => {
+    const retainedInputs: SeedMemberInput[] = [2, 3].map((number) => ({
+      email: `seed-${number}@example.com`,
+      name: `Seed ${number}`,
+      password: `fixture-seed-password-${number}`,
+    }));
+    const oldInput: SeedMemberInput = {
+      email: "seed-old@example.com",
+      name: "Seed Old",
+      password: "fixture-seed-password-old",
+    };
+    const newInput: SeedMemberInput = {
+      email: "seed-new@example.com",
+      name: "Seed New",
+      password: "fixture-seed-password-new",
+    };
+
+    await provisionMembers([oldInput, ...retainedInputs], 4, testDb);
+    const staleLoginBeforeRotation = await login(
+      requestJson("/api/login", {
+        email: oldInput.email,
+        password: oldInput.password,
+      }),
+    );
+    expect(staleLoginBeforeRotation.status).toBe(200);
+
+    await provisionMembers([newInput, ...retainedInputs], 4, testDb);
+
+    const rows = await testDb.select().from(members);
+    const staleLoginAfterRotation = await login(
+      requestJson("/api/login", {
+        email: oldInput.email,
+        password: oldInput.password,
+      }),
+    );
+    expect({
+      memberRows: rows.length,
+      staleAccountLoginStatus: staleLoginAfterRotation.status,
+    }).toEqual({ memberRows: 3, staleAccountLoginStatus: 401 });
+  });
+
+  it("refuses to remove an account that owns schedule or workout history", async () => {
+    const retainedInputs: SeedMemberInput[] = [2, 3].map((number) => ({
+      email: `seed-${number}@example.com`,
+      name: `Seed ${number}`,
+      password: `fixture-seed-password-${number}`,
+    }));
+    const oldInput: SeedMemberInput = {
+      email: "seed-old@example.com",
+      name: "Seed Old",
+      password: "fixture-seed-password-old",
+    };
+    const newInput: SeedMemberInput = {
+      email: "seed-new@example.com",
+      name: "Seed New",
+      password: "fixture-seed-password-new",
+    };
+
+    await provisionMembers([oldInput, ...retainedInputs], 4, testDb);
+    const [oldMember] = await testDb
+      .select()
+      .from(members)
+      .where(eq(members.email, oldInput.email));
+    await testDb.insert(scheduleDays).values({
+      date: "2026-08-25",
+      isWorkout: true,
+      memberId: oldMember.id,
+    });
+    await testDb.insert(workouts).values({
+      date: "2026-08-21",
+      memberId: oldMember.id,
+    });
+
+    await expect(
+      provisionMembers([newInput, ...retainedInputs], 4, testDb),
+    ).rejects.toThrow(/history/i);
+
+    await expect(testDb.select().from(members)).resolves.toHaveLength(3);
+    await expect(testDb.select().from(scheduleDays)).resolves.toHaveLength(1);
+    await expect(testDb.select().from(workouts)).resolves.toHaveLength(1);
   });
 });
 

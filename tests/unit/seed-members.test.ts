@@ -31,7 +31,7 @@ describe("seed member input", () => {
     ]);
   });
 
-  it("accepts three CLI member groups and rejects duplicate emails", () => {
+  it("rejects plaintext passwords supplied through process arguments", () => {
     const arguments_ = [1, 2, 3].flatMap((number) => [
       "--member",
       `CLI Member ${number}`,
@@ -39,14 +39,25 @@ describe("seed member input", () => {
       `cli-password-${number}`,
     ]);
 
-    expect(readSeedMembers(arguments_, {})).toHaveLength(3);
+    expect(() => readSeedMembers(arguments_, {})).toThrow(
+      /environment variables/i,
+    );
+  });
+
+  it("rejects duplicate member emails from environment variables", () => {
+    const environment = Object.fromEntries(
+      [1, 2, 3].flatMap((number) => [
+        [`MEMBER_${number}_NAME`, `Member ${number}`],
+        [
+          `MEMBER_${number}_EMAIL`,
+          number === 2 ? "member1@example.com" : `member${number}@example.com`,
+        ],
+        [`MEMBER_${number}_PASSWORD`, `long-password-${number}`],
+      ]),
+    );
+
     expect(() =>
-      readSeedMembers(
-        arguments_.map((value) =>
-          value === "cli2@example.com" ? "cli1@example.com" : value,
-        ),
-        {},
-      ),
+      readSeedMembers([], environment),
     ).toThrow(/unique/);
   });
 });

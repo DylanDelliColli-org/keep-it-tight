@@ -1,6 +1,7 @@
 import { pathToFileURL } from "node:url";
 
 import { hash } from "bcryptjs";
+import { count, inArray, notInArray, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { z } from "zod";
@@ -33,49 +34,19 @@ function memberFromEnvironment(
   };
 }
 
-function membersFromArguments(arguments_: string[]): SeedMemberInput[] {
-  if (arguments_.every((argument) => argument !== "--member")) {
-    if (arguments_.length !== 9) {
-      throw new Error(
-        "Pass nine positional values (name email password, repeated three times) or three --member name email password groups",
-      );
-    }
-
-    return [0, 3, 6].map((offset) => ({
-      email: arguments_[offset + 1],
-      name: arguments_[offset],
-      password: arguments_[offset + 2],
-    }));
-  }
-
-  const result: SeedMemberInput[] = [];
-  for (let index = 0; index < arguments_.length; index += 4) {
-    if (
-      arguments_[index] !== "--member" ||
-      arguments_.slice(index + 1, index + 4).length !== 3
-    ) {
-      throw new Error(
-        "Each member must be passed as --member name email password",
-      );
-    }
-
-    result.push({
-      email: arguments_[index + 2],
-      name: arguments_[index + 1],
-      password: arguments_[index + 3],
-    });
-  }
-
-  return result;
-}
-
 export function readSeedMembers(
   arguments_: string[] = process.argv.slice(2),
   environment: SeedEnvironment = process.env,
 ): SeedMemberInput[] {
-  const candidates = arguments_.length
-    ? membersFromArguments(arguments_)
-    : [1, 2, 3].map((index) => memberFromEnvironment(index, environment));
+  if (arguments_.length > 0) {
+    throw new Error(
+      "Command-line member arguments are not supported because they expose plaintext passwords; use the MEMBER_1_*, MEMBER_2_*, and MEMBER_3_* environment variables",
+    );
+  }
+
+  const candidates = [1, 2, 3].map((index) =>
+    memberFromEnvironment(index, environment),
+  );
   const parsed = z.array(memberSchema).length(3).parse(candidates);
 
   if (new Set(parsed.map(({ email }) => email)).size !== 3) {
@@ -104,6 +75,42 @@ export async function provisionMembers(
   );
 
   await database.transaction(async (transaction) => {
+    // Provisioning is a whole-set replacement. Serialize concurrent operator
+    // runs so two different requested sets cannot interleave into a union.
+    await transaction.execute(
+      sql`select pg_advisory_xact_lock(hashtext('contest:seed-members'))`,
+    );
+
+    const requestedEmails = prepared.map(({ email }) => email);
+    const removedMembers = await transaction
+      .select({ email: schema.members.email, id: schema.members.id })
+      .from(schema.members)
+      .where(notInArray(schema.members.email, requestedEmails));
+
+    if (removedMembers.length > 0) {
+      const removedMemberIds = removedMembers.map(({ id }) => id);
+      const [[scheduleHistory], [workoutHistory]] = await Promise.all([
+        transaction
+          .select({ value: count() })
+          .from(schema.scheduleDays)
+          .where(inArray(schema.scheduleDays.memberId, removedMemberIds)),
+        transaction
+          .select({ value: count() })
+          .from(schema.workouts)
+          .where(inArray(schema.workouts.memberId, removedMemberIds)),
+      ]);
+
+      if (scheduleHistory.value > 0 || workoutHistory.value > 0) {
+        throw new Error(
+          `Refusing to remove member history (${scheduleHistory.value} schedule days, ${workoutHistory.value} workouts) for: ${removedMembers.map(({ email }) => email).join(", ")}`,
+        );
+      }
+
+      await transaction
+        .delete(schema.members)
+        .where(inArray(schema.members.id, removedMemberIds));
+    }
+
     for (const member of prepared) {
       await transaction
         .insert(schema.members)
