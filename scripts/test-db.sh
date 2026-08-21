@@ -5,11 +5,14 @@ set -euo pipefail
 
 CONTAINER=contest-test-pg
 PORT=5433
-TEST_DATABASE_URL="postgresql://postgres:postgres@127.0.0.1:${PORT}/postgres"
+DEFAULT_DATABASE_URL="postgresql://postgres:postgres@127.0.0.1:${PORT}/postgres"
+# Resolve the target the way the harness does, honoring the same override, so
+# this script can never bring up or approve a database Vitest will not use.
+TEST_DATABASE_URL="${CONTEST_TEST_DATABASE_URL:-$DEFAULT_DATABASE_URL}"
 
 # CI provides Postgres as a service container before this script runs. Check
-# the same pinned URL the integration harness uses so local and CI runs keep a
-# single entry point without asking CI to manage Docker itself.
+# the resolved URL so local and CI runs keep a single entry point without
+# asking CI to manage Docker itself.
 if node --input-type=module --eval '
 import pg from "pg";
 
@@ -29,6 +32,14 @@ try {
 ' "$TEST_DATABASE_URL"; then
   echo "Contest integration database already reachable: ${TEST_DATABASE_URL}"
   exit 0
+fi
+
+# The container serves the default URL only. An override that is unreachable
+# is the caller's own database to bring up; starting ours would hand them a
+# different one than the harness will connect to.
+if [ "$TEST_DATABASE_URL" != "$DEFAULT_DATABASE_URL" ]; then
+  echo "CONTEST_TEST_DATABASE_URL is not reachable: ${TEST_DATABASE_URL}" >&2
+  exit 1
 fi
 
 if [ -n "$(docker ps -q -f "name=^${CONTAINER}$")" ]; then
