@@ -7,6 +7,30 @@ CONTAINER=contest-test-pg
 PORT=5433
 TEST_DATABASE_URL="postgresql://postgres:postgres@127.0.0.1:${PORT}/postgres"
 
+# CI provides Postgres as a service container before this script runs. Check
+# the same pinned URL the integration harness uses so local and CI runs keep a
+# single entry point without asking CI to manage Docker itself.
+if node --input-type=module --eval '
+import pg from "pg";
+
+const client = new pg.Client({
+  connectionString: process.argv[1],
+  connectionTimeoutMillis: 500,
+});
+
+try {
+  await client.connect();
+  await client.query("select 1");
+} catch {
+  process.exitCode = 1;
+} finally {
+  await client.end().catch(() => {});
+}
+' "$TEST_DATABASE_URL"; then
+  echo "Contest integration database already reachable: ${TEST_DATABASE_URL}"
+  exit 0
+fi
+
 if [ -n "$(docker ps -q -f "name=^${CONTAINER}$")" ]; then
   :
 elif [ -n "$(docker ps -aq -f "name=^${CONTAINER}$")" ]; then
