@@ -30,18 +30,29 @@ describe("sealed session cookies", () => {
     expect(readSessionMemberId(request)).toBe(42);
   });
 
-  it("rejects a modified seal", () => {
+  it.each([
+    ["IV", 0],
+    ["ciphertext", 12 + 16],
+    ["authentication tag", 12],
+  ])("rejects a seal with a flipped %s byte", (_region, byteIndex) => {
     const cookie = createSessionCookie(7).split(";", 1)[0];
     const [name, value] = cookie.split("=");
-    const finalCharacter = value.at(-1) === "a" ? "b" : "a";
-    const tampered = `${name}=${value.slice(0, -1)}${finalCharacter}`;
+    const originalBytes = Buffer.from(value, "base64url");
+    const tamperedBytes = Buffer.from(originalBytes);
+    tamperedBytes[byteIndex] ^= 1;
+    const tamperedValue = tamperedBytes.toString("base64url");
+    const tampered = `${name}=${tamperedValue}`;
 
     expect(name).toBe(SESSION_COOKIE_NAME);
+    expect(tamperedBytes.equals(originalBytes)).toBe(false);
     expect(
       readSessionMemberId(
         new Request("http://localhost", { headers: { cookie: tampered } }),
       ),
     ).toBeNull();
+  });
+
+  it("rejects malformed seal encoding", () => {
     expect(
       readSessionMemberId(
         new Request("http://localhost", {

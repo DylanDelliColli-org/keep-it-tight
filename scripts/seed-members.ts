@@ -38,6 +38,9 @@ export function readSeedMembers(
   arguments_: string[] = process.argv.slice(2),
   environment: SeedEnvironment = process.env,
 ): SeedMemberInput[] {
+  // The supported path passes the three real account passwords through the
+  // environment (normally loaded from .env.local). That file is gitignored
+  // and must never be committed; this is a deliberate local-secret tradeoff.
   if (arguments_.length > 0) {
     throw new Error(
       "Command-line member arguments are not supported because they expose plaintext passwords; use the MEMBER_1_*, MEMBER_2_*, and MEMBER_3_* environment variables",

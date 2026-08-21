@@ -197,6 +197,9 @@ describe("self-auth route contract", () => {
     );
     expect(routePaths).toEqual(["login", "logout"]);
 
+    // This filesystem check is a naming tripwire, not a behavioral prover.
+    // The members-never-grows global teardown is the behavioral half of the
+    // no-signup guard; weakening either check weakens their shared contract.
     const appFiles = await filesUnder(APP_ROOT);
     const forbiddenSegment = /(^|[\\/])(signup|register|sign-up)([\\/]|$)/i;
     expect(
