@@ -90,7 +90,15 @@ here so nobody "fixes" the exception later.
    Chosen over Clerk to keep integration tests hermetic (no remote API
    in the auth path) at three users. Known limitation, accepted at
    this threat model: sealed stateless cookies cannot be revoked
-   server-side before expiry.
+   server-side before expiry. A second known limitation is that the
+   public login endpoint has no attempt throttling, making it an
+   unrestricted password-guessing surface where every unknown-account
+   attempt also consumes a bcrypt comparison. The operator accepted
+   this at the PR #5 cycle-1 review on 2026-08-21 because there are
+   three known accounts, no signup, no valuable data, and the north
+   star scopes the app to three people rather than a product for
+   strangers. Users beyond those three, or evidence of real login
+   attempts, reopens the decision.
 10. **API seam:** all mutations are zod-validated route handlers.
     `PUT /api/schedule` uses **week-replace semantics** (operator
     ruling at the RECORD gate): the payload names one week (its
